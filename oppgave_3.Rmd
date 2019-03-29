@@ -1,0 +1,413 @@
+---
+title: "Oppgave 3"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Formål
+Formålet med denne oppgaven er å belyse i hvilke, og i hvilken grad, partiene på stortinget endret sine posisjoner mellom 2001 og 2005. Du skal først laste ned partiprogrammene for alle partiene på stortinget i 2001 og 2005. Du finner alle [partiprogrammene her:](http://www.nsd.uib.no/polsys/data/parti/partidokumentarkivet/?q=&rows=10&fq=) Du finner en oversik over [partier på stortinget her:](https://www.stortinget.no/no/Stortinget-og-demokratiet/Valg-og-konstituering/Valgstatistikk/Partienes-representasjon-pa-Stortinget/) 
+
+## Last inn partiprogrammene
+I snutten nedenfor skal du skrive en kode som laster inn alle partiprogrammene, gjør dem om til et ``corpus``, legger til partinavn og årstall som dokument variabler, og lagrer dette som et r-object som heter `valgprogram.RData`. Bruk funksjoner i R-pakkene ``readtext`` og ``quanteda``. Når du har gjort denne riktig, setter du ``eval = FALSE`` i topplinjen på `last_ned` biten med R-kode slik at du ikke må laste inn data hver gang du kjører koden. Du kan sette tilbake til ``eval = TRUE`` før du leverer inn. 
+
+```{r last_ned}
+library(quanteda)
+library(tidytext)
+library(tidyr)
+library(readtext)
+library(scales)
+
+url <- c(
+  "http://www.nsd.uib.no/polsys/data/filer/parti/H25.html", #Venstre2001
+  "http://www.nsd.uib.no/polsys/data/filer/parti/H32.html", #SV2001
+  "http://www.nsd.uib.no/polsys/data/filer/parti/H3.html", #Høyre2001
+  "http://www.nsd.uib.no/polsys/data/filer/parti/H19.html", #Arbeiderpartiet2001
+  "http://www.nsd.uib.no/polsys/data/filer/parti/H34.html", #KRF2001
+  "http://www.nsd.uib.no/polsys/data/filer/parti/H37.html", #Senterpartiet2001
+  "http://www.nsd.uib.no/polsys/data/filer/parti/H5181.html", #Fremskrittspartiet2001
+  "http://www.nsd.uib.no/polsys/data/filer/parti/H9191.html", #Arbeiderpartiet2005
+  "http://www.nsd.uib.no/polsys/data/filer/parti/H9360.html", #SV2005
+  "http://www.nsd.uib.no/polsys/data/filer/parti/H9362.html", #Venstre2005
+  "http://www.nsd.uib.no/polsys/data/filer/parti/H9364.html", #Høyre2005
+  "http://www.nsd.uib.no/polsys/data/filer/parti/H9365.html", #KRF2005
+  "http://www.nsd.uib.no/polsys/data/filer/parti/H9366.html", #Senterpartiet2005
+  "http://www.nsd.uib.no/polsys/data/filer/parti/H9368.html" #Fremskrittspartiet2005
+)
+
+
+
+
+parti_corpus <- url %>% # bruk disse nettsidene
+   readtext( encoding ="LATIN1") %>% # les inn, bruk LATIN1 encoding
+   corpus()  # lag et korpus, et klassisk format to NLP
+
+partiene <- c("KrF 2001", "Venstre 2005", "Arbeiderpartiet 2005", "FrP 2005", "KrF 2005", "Senterpartiet 2005", "SV 2001", "Venstre 2001", "Høyre 2005", "Senterpartiet 2001", "SV 2005", "Arbeiderpartiet 2001", "Høyre 2001", "FrP 2001")
+
+docnames(parti_corpus) <- partiene
+
+docvars(parti_corpus, "Parti") <- c("KrF", "Venstre", "Arbeiderpartiet", "FrP", "KrF", "Senterpartiet", "SV", "Venstre", "Høyre", "Senterpartiet", "SV", "Arbeiderpartiet", "Høyre", "FrP")
+
+docvars(parti_corpus, "Årstall") <- c("2001", "2005","2005","2005","2005","2005", "2001", "2001", "2005", "2001", "2005", "2001", "2001", "2001")
+
+save(parti_corpus, file = "valgprogram.RData")
+
+# skriv koden som laster ned og lagrer partiprogrammene som et corpus her. 
+```
+
+## Lengde på partiprogrammer
+
+Nå vil jeg at du skal lage en tabell som viser hvor lange de ulike partiprogrammene er, hvor mange ulike ord partiene bruker, og forholdet mellom antall ord og antall setninger i parti-programmet. Bruk redskap fra ``tidyverse`` og ``tidytext`` for å gjøre dette. Du skal ikke gjøre noe preprosessering før du gjør dette. 
+
+```{r lengde}
+# kode for å lage tabell her
+library(tidyverse)
+sum <- summary(parti_corpus)
+info_om_programmer <- sum %>%
+  select("Parti" = "Parti", "Årstall" = "Årstall", "Antall ord" = "Tokens", "Ulike ord" = "Types") %>%
+  mutate("Ord per setning" = sum$Tokens/sum$Sentences)
+
+```
+
+## Fordeling av ordfrekvenser 
+
+Bruk ``ggplot`` for å lage et sett av figurer som viser hvordan ord-frekvenser fordeler seg per parti når begge valgprogrammene er sett samlet.
+
+```{r frekvens}
+parti_program_dfm <- parti_corpus %>% 
+      tokens(what = "word",
+             remove_numbers = TRUE,
+             remove_punct = TRUE,
+             remove_symbols = TRUE,
+             remove_separators = TRUE,
+             remove_url = TRUE) %>%
+      dfm(tolower = TRUE, remove = stopwords("no"))
+
+parti_ord <- parti_program_dfm %>%
+  tidy() %>%
+  rename("n" = count)
+
+parti_ord_med_lengde <- parti_ord %>%
+  group_by(document) %>%
+  summarise(lengde = sum(n)) %>% 
+  left_join(parti_ord)
+
+
+freq_plot <- parti_ord_med_lengde %>%
+  separate(document, c("Parti", "År")) %>%
+  ggplot(aes(n/lengde, fill = Parti)) + 
+  geom_histogram(show.legend = FALSE) +
+  facet_wrap(~Parti, ncol = 3, scales = "free_y") +
+  theme(axis.text.x = element_text(angle = 90)) +
+  scale_x_continuous(limits = c(NA,.001), name ="andel ord") +
+  scale_y_continuous(name = "antall ord")
+freq_plot
+```
+
+## Har senterpartiet endret seg?
+
+Lag en figur som viser i hvilken grad Senterpartiet bruker andre ord i 2005 enn i 2001.
+
+```{r senterparti}
+# kode som lager en figur som illustrerer grad av endring hos Senterpartiet
+partier_med_total_n <- parti_ord_med_lengde %>% # bruk parti_program
+  group_by(term) %>% # grupper på ord
+  summarise(total_n = sum(n)) %>% # summer opp på tvers av program
+  right_join(parti_ord_med_lengde) %>%  # sett inn i parti_ord datasettet
+  arrange(desc(total_n)) # sorter synkende, og lag parti_ord
+
+ord_prop <- partier_med_total_n %>% 
+  filter(document == c("Senterpartiet 2001", "Senterpartiet 2005")) %>% 
+  group_by(document) %>% 
+  mutate(proportion = n / sum(n)) %>% 
+  dplyr::select(- c(total_n, n,lengde)) %>% 
+  spread(document, proportion) %>% 
+  gather(document, proportion, `Senterpartiet 2005`)
+
+fig_sp_01_05 <- ggplot(ord_prop, aes(x = proportion, y = `Senterpartiet 2001`, 
+                     color = abs(`Senterpartiet 2001` - proportion))) +
+  geom_abline(color = "grey40") +
+  geom_jitter(alpha = 0.1, size = 2.5, width = 0.3, height = 0.3) +
+  geom_text(aes(label = term), check_overlap = TRUE, vjust = 1.5) +
+  scale_x_log10(labels = percent_format(), limits = c(0.00003,.002)) +
+  scale_y_log10(labels = percent_format(), limits = c(0.00003,.002)) +
+  scale_color_gradient(limits = c(0, 0.0001), 
+                       low = "darkslategray4", 
+                       high = "grey25") +
+  theme(legend.position = "none") +
+  labs(y = "Senterpartiet 2001", x = "Senterpartiet 2005") +
+  ggtitle("Forskjell i ordbruk mellom SP i 2001 og 2005")
+
+fig_sp_01_05
+
+```
+
+## Hvilke ord skiller
+
+Lag en dokument-frekvens matrise hvor du har tatt bort regnsetting, tall, symboler og urler. Gjør alt om til små bokstaver. Kalkuler tf og idf mål. Lag en figur som viser de 10 ordene som best skiller partiene fra hverandre.   
+
+```{r skilleord_parti}
+# OBS: Jeg renser bort tegnsetting, tall, symboler og URLer på linje 75
+parti_skilleord <- parti_ord %>% 
+  separate(document, c("Parti", "År")) %>%
+  bind_tf_idf(term, Parti, n)
+
+topp_10_skilleord <- parti_skilleord %>% 
+  arrange(desc(tf_idf)) %>% 
+  mutate(term = factor(term, levels = rev(unique(term)))) %>% 
+  group_by(Parti) %>% 
+  top_n(10) %>% 
+  ungroup()
+
+fig_skilleord <- topp_10_skilleord %>%
+  ggplot(aes(term, tf_idf, fill = Parti)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~Parti, ncol =3, scale = "free") +
+     theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y = element_blank()) +
+  coord_flip()
+
+fig_skilleord
+
+```
+
+Gjennta det samme for årstall.
+
+```{r skilleord_årstall}
+# kode årstall-skille her
+årstall_skilleord <- parti_ord %>% 
+  separate(document, c("Parti", "År")) %>%
+  bind_tf_idf(term, År, n)
+
+topp_10_skilleord_år <- årstall_skilleord %>% 
+  arrange(desc(tf_idf)) %>% 
+  mutate(term = factor(term, levels = rev(unique(term)))) %>% 
+  group_by(År) %>% 
+  top_n(10) %>% 
+  ungroup()
+
+fig_skilleord_år <- topp_10_skilleord_år %>%
+  ggplot(aes(term, tf_idf, fill = År)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~År, ncol =3, scale = "free") +
+     theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y = element_blank()) +
+  coord_flip()
+
+fig_skilleord_år
+
+
+```                                                                                     
+
+Lag en variable med de ordene du mener er parti eller årstall-markører. Med markør menes et ord som i veldig stor grad identifiserer ett bestemt parti eller et årstall. Bruk denne variabelen til å fjerne disse ordene og lag en et nytt datasett uten disse ordene. Lag en figur som, per parti, viser topp 10 ord før og etter fjerning av disse markør-ordene.
+
+```{r fjern_markørord}
+
+library(gridExtra)
+
+stop_words <- tibble(term = c("arbeiderpartiet", "arbeiderpartiets", "www.caplex.net", "må", "bør", "fremskrittspartiet", "fremskrittspartiets", "sosialistisk", "venstreparti", "sv", "senterpartiet", "senterpartiets", "sp", "krf", "kristelig", "folkeparti", "høyre", "venstre", "venstres", "à", "kristendemokratiet", "kristendemokratisk", "o"))
+
+parti_ord_med_stopp <- parti_ord %>%
+  anti_join(stop_words)
+
+parti_skilleord <- parti_ord_med_stopp %>% 
+  separate(document, c("Parti", "År")) %>%
+  bind_tf_idf(term, Parti, n)
+
+topp_10_skilleord_etter <- parti_skilleord %>% 
+  arrange(desc(tf_idf)) %>% 
+  mutate(term = factor(term, levels = rev(unique(term)))) %>% 
+  group_by(Parti) %>% 
+  top_n(10) %>% 
+  ungroup()
+
+topp_10_skilleord_etter$Parti <- paste(topp_10_skilleord_etter$Parti, " etter")
+
+#topp_10_skilleord_for_etter <- topp_10_skilleord %>%
+#  right_join(copy = TRUE, topp_10_skilleord_etter)
+
+for_etter <- rbind(topp_10_skilleord, topp_10_skilleord_etter)
+  
+
+fig_skilleord_etter <- for_etter %>%
+  ggplot(aes(term, tf_idf, fill = Parti)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~Parti, ncol =2, scale = "free") +
+     theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y = element_blank()) +
+  coord_flip()
+
+fig_skilleord_etter
+#grid extra, grid arrange
+
+```
+
+## Ordliste
+
+Lag 2 lister som med ord som etter din mening skiller godt høyre-siden fra venstesiden. Lag deretter 2 tilsvarende lister som skiller for og mot globalisering. Bruk mellom 10 og 20 ord i hver av listene. Lag en ordliste og bruk denne til å plassere partiene i forhold til hverandre og over tid. Vis dette i en tabell hvor partiene er sortert fra lav til høy verdi på høyre - venstre dimensjonen. 
+
+```{r ordliste}
+# kode for ordliste her
+
+ordliste <- dictionary(list(venstre = c("fagforening", "fagforeningene", "fagbevegelsen", "feminisme", "likelønn", "kvinner",
+                                        "solidaritet", "rettigheter", "natur",
+                                        "minoriteter", "diskrimminering", "trakaserring",
+                                        "velferd", "helse", "omsorg", "rettferdighet",
+                                        "privatisering", "abort", "arbeidskraft",
+                                        "miljø", "integrering", "fred",
+                                        "barnehage", "offentlig"),
+                              hoyre = c("inntekt", "skatter", "lønn", "Skatt", "frihet", "avgifter",
+                                        "trygghet", "arbeidsplasser",
+                                        "forsvar", "innovasjon", "næringsliv",
+                                        "individ", "kultur", "historie",
+                                        "omstillingsevne", "privat", "valg", "bompenger", "motorvei", "veier", "flyktninger",
+                                        "arbeidsmarkedet"),
+                    proglobalisering =c("flyt", "handel", "fri", "vekst", "industri","kapitalflyt", "frihandel",                                                      "investeringer","massemedier", "kommunikasjon",
+                                        "muligheter", "verdikjeder",
+                                        "markeder", "samarbeid",
+                                        "EU", "europapolitikk",
+                                        "eksport", "import"),
+                  antiglobalisering = c("lokal","støtte", "utnytte",  "selvforsynt", "trygg", "innvandrere", "integrere",                                               "beskytte", "landbruk", "suverenitet", "nasjonal", "stolt", "konge", "verdier" )))
+
+hoyre_venstre_tabell <- parti_program_dfm %>%
+  dfm(dictionary = ordliste) %>%
+  tidy()%>%
+  spread(term, count) %>% 
+  rename("parti" = document) %>%
+  mutate("hoyre_venstre" = hoyre-venstre, "globaliseringsvennlig" = proglobalisering-antiglobalisering) %>%
+  arrange(desc(hoyre_venstre)) %>%
+  select(parti, hoyre_venstre, globaliseringsvennlig)
+
+hoyre_venstre_tabell
+```
+
+## Partiposisjoner figur
+
+Lag en figur av dette i ``ggplot``.
+
+```{r figure_ordliste}
+# ordliste-figur
+ordliste_figur <- hoyre_venstre_tabell %>%
+  ggplot(aes(hoyre_venstre, globaliseringsvennlig)) +
+    geom_point() +
+    geom_text(aes(label=parti),hjust=0, vjust=0) + 
+    scale_x_continuous("Høyreord minus venstreord") + 
+    scale_y_continuous("Globaliseringsvennlighet")
+ordliste_figur
+
+```
+
+## Bruk ``kwic`` til å danne deg en oversikt over parti-programmene
+
+Nå skal du bruke ``kwic`` til å danne deg en oversikt over parti-programmene. Sammenlign hvordan partiene vektlegger barnehager. Vis med ``textplot_x_ray`` fra ``quanteda``.
+
+```{r barnehage}
+# kode for å vise hvordan barnehager vektlegges.
+
+kwic(parti_corpus, pattern = phrase("barnehage")) %>% 
+  textplot_xray()
+
+```
+
+## Cosine
+
+Bruk cosine til å kalkulere forskjeller mellom tekstene. Vis dette som en tabell med 3 desimaler på hvert tall. 
+
+```{r cosine}
+# cosine tabell
+
+
+
+textstat_simil(dfm(parti_corpus), margin = "document", method = "cosine") %>% 
+  round(3)
+```
+
+## Wordscores
+
+Ut fra hva du har sett til nå, og det du vet om norsk politikk, estimer en ``wordscores`` model som plasserer partiene langs høyre - venstre dimensjonen. Program for begge periodene skal være i samme figur. 
+
+```{r wordscores}
+# wordscores
+
+ws <- textmodel_wordscores(x = dfm(parti_corpus), y = c(NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,-1, NA, NA, 1)) # Frp og Rødt er referanse-dokumenter
+parti_plassering <- predict(ws, se.fit = TRUE, level = .99, interval = "confidence", rescaling = "none") # estimerer andre parti
+textplot_scale1d(parti_plassering, margin = "documents")
+```
+
+## Korrespondanse analyse
+
+Estimer en 2 dimensjonal korrespondanse analyse model og vis resultatene fra denne som en figur. Hva gir mest mening av denne modellen og wordscores?
+
+```{r ca}
+
+
+ca2 <- textmodel_ca(parti_program_dfm, nd = 2)
+ca2_pos <- as_tibble(cbind(ca2$rowcoord, names = partiene))
+ggplot(ca2_pos, aes(x = Dim1, y = Dim2)) +
+  geom_text(aes(label = partiene)) +
+   theme(axis.title.x=element_blank(), # ta bort info å aksene
+        axis.text.x=element_blank(),
+        axis.title.y = element_blank(),
+          axis.text.y=element_blank()) # Gir dette noe mening? 
+
+```
+
+SKRIV MELLOM 100 og 200 ord om hvorfor du mener den ene modellen gir mer mening enn den andre her:
+
+Her synes jeg det er veldig vanskelig å plukke ut en av de to modellene. Jeg synes Wordscores rangerer partiene på en måte som stemmer relativt godt overens med hvor partiene plasserer seg selv fra høyre til venstreaksen. CA gjør også en god jobb med å gruppere partiene nære hverandre på den første dimensjonen, X-aksen. Samtidig vet vi at årstall spiller en stor rolle. Jeg har ikke inngående kjennskap til partiprogrammene de ulike årene, og det kan godt være at SP i praksis bevegde seg til høyre for KrF over de fire årene. 
+
+Jeg velger til slutt å gå for CA-modellen, da den treffer ørlite grann bedre enn wordscore dersom vi sammenligner X-aksen med den faktiske plasseringen på norsk politisk skala.
+
+## Spiller det noen rolle hvordan du preprosesserer tekstene? 
+
+Re-estimer den modellen du mener gir mest mening med de 2 spesifiseringene som ``preText`` viser at kan gi størst forskjell i resultater. Holder resultatene dine?
+
+```{r preText}
+# figurer av reestimerte modeller 
+library(preText)
+pp_partier <- factorial_preprocessing(parti_corpus,
+                                      infrequent_term_threshold = 0.12,
+                                      parallel = TRUE, cores = 8) # dette tar noe tid
+pp_partier$choices
+
+pt_resultat <- preText(
+  pp_partier,
+  num_comparisons = 28,
+  verbose = FALSE,
+  parallel = TRUE, cores = 8)
+
+regression_coefficient_plot(pt_resultat, remove_intercept = TRUE)
+
+ngram_dfm <- parti_corpus %>% 
+      tokens(what = "word",
+             ngrams = 1:2, 
+         remove_punct = TRUE,
+         remove_separators = TRUE) %>% 
+  dfm()
+
+ca2 <- textmodel_ca(ngram_dfm, nd = 2)
+ca2_pos <- as_tibble(cbind(ca2$rowcoord, names = partiene))
+ggplot(ca2_pos, aes(x = Dim1, y = Dim2)) +
+  geom_text(aes(label = partiene)) +
+   theme(axis.title.x=element_blank(), 
+        axis.text.x=element_blank(),
+        axis.title.y = element_blank(),
+          axis.text.y=element_blank())
+
+```
+
+SKRIV EGEN VURDERING HER:
+
+Korrespondanseanalysen ser ut til å gi enda bedre resultater langs den første dimensjonen etter pretext-endringen, men med ett stort unntak: SV har gått fra helt til venstre på X-aksen til helt til høyre. Jeg synes dette ser rart ut, og klarer ikke helt å forstå hvorfor det skjer. Ngram og tegnsetting er det eneste som er endret. Jeg konkluderer med at pretext kan ha stor betydning.
+
+## TEST MED KNIT AT SKRIPTET KJØRER UTEN FEIL FØR DU LEVERER INN

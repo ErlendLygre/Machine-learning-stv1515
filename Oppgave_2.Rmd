@@ -1,0 +1,255 @@
+---
+title: 'Oppgave 2: Klassifisering og resampling'
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+I denne oppgaven skal du jobbe med klassifisering og resampling. Du må skrive noen funksjoner for å gjøre dette på en effektiv måte. Hver av kodesnuttene innholder et objekt-navn som er kommentert ut med ``#``. Husk å ta bort ``#`` slik at objektet eksisterer når koden har kjørt. Det er dette objektnavnet som blir skjekket. Det må stemme opp mot fasit. Kode-snutter som genererer feilmeldinger blir tatt ut før resultatene sjekkes. Det er derfor viktig at koden din kjører uten å generere feilmeldinger. 
+
+Du kan anta at datasettet som skal brukes ligger i samme folder som filen. Men du må selv laste inn filen. Der hvor det står hvilke funksjoner som skal brukes, så må disse brukes. Andre funksjoner som gjør nesten det samme gir ikke nødvendigvis korrekt resultat. Hvis det er essensielt at det brukes spesielle funksjoner, så er disse nevnt eksplisitt med ``navn_på_funksjon``. 
+
+## Klassifisering
+
+Vi begynner med klassifisering. For disse oppgavene skal du bruke datasettet **vote92.rda**. Det er fra en spørreundersøkelse fra det Amerikanske  presidentvalget i 1992. Det var 2 alternativer, Ross Perot, Bill Clinton og George H. W. Bush. Datasettet kommer fra *Alvarez, R. Michael and Jonathan Nagler. 1995. Economics, issues and the Perot candidacy: Voter choice in the 1992 Presidential election. American Journal of Political Science. 39:714-44.* Dokumentasjon av datasettet er inkludert til slutt i denne oppgaven.
+
+Vi begynner med å laste inn datasettet. Her skal du bruke ``load``. Som alltid bruker vi ``library(tidyverse)``.
+
+```{r vote92}
+library(tidyverse)
+library(boot)
+library(MASS)
+load("vote92.rda")
+```
+
+Deretter skal du lage en figur med ``ggplot`` og ``geom_bar`` som viser hvor mange som stemmer hver av kandidatene fikk blant respondentene i dette datasettet. Denne figuren skal hete **fordeling**.
+
+```{r fordeling}
+fordeling <- vote92 %>%
+  group_by(vote) %>%
+  ggplot(aes(x = vote)) +
+    geom_bar(stat = "count")
+fordeling
+```
+
+Nå skal du lage et datasett som ikke har med observasjoner fra respondenter som svarte at de stemte på den av kandidatene som fikk minst støtte blant disse respondentene. Kall dette datasettet **vote2**. Du skal bruke funksjoner fra ``library(dplyr)`` for å gjøre dette. Som kjent er ``library(dplyr)`` en del av ``tidyverse`` samlingen som vi alltid bruker.
+
+```{r vote2}
+vote2 <- vote92 %>% 
+  filter(vote != "Perot") %>%
+  droplevels()
+```
+
+Nå skal du lage en formel for en modell som klassifiserer hvilken kandidat respondentene stemmer på som en funksjon av de andre variablene i datasettet. Med formel så menes det avhengig variable modellert med et sett av uavhengige variabler. Bruk ``as.formula`` for å lage formelen. Kall denne for **mod_1**. Du skal ikke bruke parti-identifikasjon-variablene *dem* og *rep*. Alle andre 'relevante' variablene skal inkluderes i modellen.
+
+```{r mod_1}
+mod_1 <- as.formula(vote ~ female + persfinance + natlecon + bushdis + clintondis)
+```
+
+Nå skal du estimere **mod_1** som en logistisk modell. Bruk ``glm``. Resultatet fra denne modellen skal hete **res_1**. Bruk datasettet som bare har 2 kandidater. For din egen del kan det være nyttige å lage en oppsummering av resultatene.
+
+```{r res_1}
+res_1 <- glm(mod_1, 
+             family = binomial(link="logit"),
+             data = vote2)
+arm::display(res_1)
+```
+
+Lag en alternativ model hvor du inkluderer interaksjoner mellom kjønn og rapportert ideologisk distanse mellom respondenten og hver av de to kandidatene. Denne modellen skal hete **mod_2**. Bruk ``update`` for å oppdate fra **mod_1** til **mod_2**.
+
+```{r mod_2}
+mod_2 <- update(mod_1, .~. + female:clintondis + female:bushdis) 
+```
+
+Estimer **mod_2**. Kall resultatene for **res_2**.
+
+```{r res_2}
+res_2 <- glm(mod_2, 
+             family = binomial(link="logit"),
+             data = vote2)
+arm::display(res_2)
+```
+
+Med utgangspunkt i disse resultatene, er det grunnlag for å si at ideologi spiller mindre rolle for kvinner enn for menn? Gi **ideologi_forskjell** verdien 1 hvis du mener at det er det og verdien 0 hvis ikke.
+
+```{r ideologi_forskjell}
+ideologi_forskjell <- 0
+```
+
+## loocv: Leave One Out Cross Validation
+
+For å undersøke videre om det kan være grunnlag for å hevde at ideologi spiller ulik rolle for menn og kvinner i populasjonen, skal vi bruke kryssvalidering. Vi estimerer først 'loocv (leave one out cross validation)'. Estimer 'loocv' for **res_1** og **res_2**. 
+
+Bruk en standard kostnadsfunksjon som veier alle typer feil likt. Kall denne funksjonen **feil_klass**. Denne funksjonen trenger to argumenter, riktig klasse og prediksjonene fra modellen.
+
+```{r feil_klass}
+feil_klass <- function(labels= labels,pred = pred){
+  mean(labels==ifelse(pred > .5, 1, 0)) # standard symetrisk kostnad
+}
+```
+
+Estimer 'loocv' for **res_1** og **res_2**. Gi disse modellene navnene **klass_1** og **klass_2**. Med basis i ujustert 'delta' fra **klass_1** og **klass_2**, regn ut forskjellen mellom modellene. Denne forskjellen kaller du **delta_forskjell**. Du skal bruke ``library(boot)``.
+
+```{r delta_loocv}
+klass_1 <- cv.glm(vote2,res_1, cost = feil_klass)$delta
+klass_2 <- cv.glm(vote2,res_2, cost = feil_klass)$delta
+delta_forskjell <- abs(klass_1[1] - klass_2[1])
+
+```
+
+## k-delt kryssvalidering
+
+Som kjent så kan 'loocv' overtilpasse seg til treningsdata. Bruk derfor k-delt kryssvalidering med 11 grupper som et alternativt mål på forventet klassifiseringsfeil. Kall objektet som viser forskjellen i resultatene fra **res_1** og **res_2** for **kryss_forskjell**. Bruk ``set.seed`` for å gjøre resultatene reproduserbare. Bruk såkornet 8947. 
+
+```{r kryss_forskjell}
+set.seed(8947)
+klass_1_k <- cv.glm(vote2,res_1, cost = feil_klass, K = 11)$delta
+klass_2_k <- cv.glm(vote2,res_2, cost = feil_klass, K = 11)$delta
+kryss_forskjell <- abs(klass_1_k[1] - klass_2_k[1])
+
+#kryss_forskjell 
+```
+
+## Alternativer til ``glm``
+
+Nå skal du estimere lineær diskriminat versjoner av **mod_1** og **mod_2**. Du skal bruke ``lda`` fra ``library(MASS)``. Disse resultatene skal samlet i en liste som du lager med ``map``. Kall listen med resultater **lda_mods**.
+
+```{r lda_mods}
+
+lda_mods <- map(list(mod_1, mod_2), MASS::lda, vote2)
+```
+
+Lag en ROC figur hvor du sammenligner hvordan de to ``glm`` modellene og de to ``lda`` modellene gjør det. Du skal bruke ``library(pROC)``. Bruk ``roc`` for å lage kurvene og ``ggroc`` for å lage figuren. Kall figuren for **roc_fig**.
+
+```{r roc_fig}
+library(pROC)
+roc_glm1 <- roc(response = vote2$vote, predictor = predict(res_1, type = "response"))
+roc_glm2 <- roc(response = vote2$vote, predictor = predict(res_2, type = "response"))
+roc_lda1 <- roc(response = vote2$vote, predictor = predict(lda_mods[[1]], vote2)$posterior[,2])
+roc_lda2 <- roc(response = vote2$vote, predictor = predict(lda_mods[[2]], vote2)$posterior[,2])
+
+roc_fig <- ggroc(list("Glm 1" = roc_glm1,
+                      "Glm 2" = roc_glm2,
+                      "Lda 1" = roc_lda1,
+                      "Lda 2" = roc_lda2)
+                 )
+roc_fig
+```
+
+## Mer enn 2 alternativer
+
+Ettersom ``lda`` og ``qda`` kan brukes for problem med mer enn 2 alternativer vil jeg at du skal oppdatere **mod_1** og **mod_2** til å med variablen for distanse til Perot, i **mod_2** også interaksjonen mellom kjønn og distansen til Perot. Kall disse modellene **mod_1p** og **mod_2p**. Estimer ``lda`` modeller. Bruk **vote92**.  Kall listen med resultater **mod_p**.
+
+```{r mod_p, warning = FALSE}
+mod_1p <- update(mod_1, .~. + perotdis) 
+mod_2p <- update(mod_2, .~. + perotdis, female:perotdis) 
+mod_p <- map(list(mod_1p, mod_2p), MASS::lda, vote92) 
+```
+
+Estimer en kvadratisk versjon av disse modellene med ``qda``. Med ``map``, sett resultatene i en liste kalt **qda_mods**.
+
+```{r mod_pq}
+qda1 <- qda(mod_1p, data = vote92)
+qda_mods <- map(list(mod_1p, mod_2p), qda, vote92)
+mod_pq <- map(list(mod_1p, mod_2p), qda, vote92)
+```
+
+Vis i hvilken grad ``qda`` versjonen av modell **mod_1p** er i stand til å finne riktig kandidat i treningsdata. Prediker utfall og lag en 3x3 tabell som sammenstiller faktisk kandidat og predikert kandidat. Kall tabellen **qda_tab**. Her skal prediksjoner være rader og faktiske være kolonner.
+
+```{r qda_tab}
+
+qda_pred_1 <- predict(qda1, data = vote92)
+qda_tab <- table(prediksjon = qda_pred_1$class, faktisk = vote92$vote)
+```
+
+## Bootstrap
+
+Lag en funksjon som lar deg estimere en bootstrap versjon av **res_2** med 1000 trekk, bruk **vote2**. Kall resultatet **res_2_boot**. 
+
+```{r res_2_boot}
+boot_function <- function(dt, index) {
+  tmp <- dt[index,]
+  coef(glm(res_2, tmp, family = binomial("logit")))
+}
+res_2_boot <- boot(vote2,boot_function, 1000)
+
+```
+Til slutt vil jeg at du lager en figur som viser koeffisientene fra **res_2_boot**. Jeg vil at du skal vise snitt, 2.5, 97.5 persentiler, og 66 og 33 persentiler. Legg en stiplet horisontal linje ved 0, slik at en lett kan se om effekten er positiv, negativ, eller overlapper 0. Tykkelsen på 97.5 percentilene skal være linjebredde 1 med gråtone 75. Øvre og nede 33 persentilene skal være i linjebredde 2 med gråtone 25. Angi snitt-effekt for hver variabel med et sort punkt ares_v størrelse 2. Ta bort navn på x og y aksen. Figuren skal vendes slik at koeffisentene ligger bortover med effekter langs x-aksen. Kall figuren **koeff_fig**.
+
+```{r koeff_fig, warning = FALSE}
+colnames(res_2_boot$t) <- names(res_2_boot$t0)
+res_2_boots <- as.data.frame(res_2_boot)
+boot_sum <- res_2_boots %>%
+  summarise_all(funs(q02.5 = quantile(.,0.05), 
+                      q33 = quantile(., 0.33), 
+                      q66 = quantile(., 0.66), 
+                      q97.5 = quantile(., 0.95),
+                      mean = mean))  %>% 
+  gather(stat, val) %>%
+  separate(stat, into = c("var", "stat"), sep = "_") %>%
+  spread(stat, val) 
+boot_sum
+
+koeff_fig <- ggplot(boot_sum, aes(var, mean)) +
+  geom_hline(yintercept=0, lty=2, lwd=1, colour="grey50") +
+  geom_errorbar(aes(ymin = q02.5, ymax = q97.5),lwd=1, colour="grey75", width=0) +
+  geom_errorbar(aes(ymin = q33, ymax = q66),lwd=2, colour="grey25", width=0) +
+  geom_point(size = 2) +
+   theme(axis.title.x = element_blank(), axis.title.y = element_blank()) +
+  coord_flip()
+
+koeff_fig
+
+```
+
+## Dokumentasjon fra datasettet
+
+Reports of voting in the 1992 U.S. Presidential election.
+Description
+Survey data containing self-reports of vote choice in the 1992 U.S. Presidential election, with numerous covariates, from the 1992 American National Election Studies.
+
+Usage
+data(vote92)
+Format
+A data frame with 909 observations on the following 10 variables.
+
+``vote`` 
+a factor with levels Perot Clinton Bush
+
+``dem``
+a numeric vector, 1 if the respondent reports identifying with the Democratic party, 0 otherwise.
+
+``rep``
+a numeric vector, 1 if the respondent reports identifying with the Republican party, 0 otherwise
+
+``female``
+a numeric vector, 1 if the respondent is female, 0 otherwise
+
+``persfinance``
+a numeric vector, -1 if the respondent reports that their personal financial situation has gotten worse over the last 12 months, 0 for no change, 1 if better
+
+``natlecon``
+a numeric vector, -1 if the respondent reports that national economic conditions have gotten worse over the last 12 months, 0 for no change, 1 if better
+
+``clintondis``
+a numeric vector, squared difference between respondent's self-placement on a scale measure of political ideology and the respondent's placement of the Democratic candidate, Bill Clinton
+
+``bushdis``
+a numeric vector, squared ideological distance of the respondent from the Republican candidate, President George H.W. Bush
+
+``perotdis``
+a numeric vector, squared ideological distance of the respondent from the Reform Party candidate, Ross Perot
+
+Details
+These data are unweighted. Refer to the original data source for weights that purport to correct for non-representativeness and non-response.
+
+Source
+Alvarez, R. Michael and Jonathan Nagler. 1995. Economics, issues and the Perot candidacy: Voter choice in the 1992 Presidential election. American Journal of Political Science. 39:714-44.
+
+Miller, Warren E., Donald R. Kinder, Steven J. Rosenstone and the National Election Studies. 1999. National Election Studies, 1992: Pre-/Post-Election Study. Center for Political Studies, University of Michigan: Ann Arbor, Michigan.
+
+Inter-University Consortium for Political and Social Research. Study Number 1112. http://dx.doi.org/10.3886/ICPSR01112.
+
+References
+Jackman, Simon. 2009. Bayesian Analysis for the Social Sciences. Wiley: Hoboken, New Jersey. Examples 8.7 and 8.8.

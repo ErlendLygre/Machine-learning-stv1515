@@ -1,0 +1,277 @@
+---
+title: "Oppgave 1"
+author: "Bjørn Høyland"
+date: "1/23/2019"
+output: github_document
+---
+
+```{r setup, include=FALSE, cache=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## V-dem: Demokratisk utvikling
+
+I forskningen på demokratisk utvikling er det for tiden en rivende utvikling blant annet på grunn av nye og rike datasett som dekker både mange aspekter ved demokrati og dekker en lang tidsperiode. Det rikeste datasettet er muligens v-dem,  https://www.v-dem.net/en/. Flere forskere ved Institutt for Statsvitenskap ved UiO har bidratt til å bygge opp dette datasettet, særlig de historiske data. Det være nyttig å ta en liten titt i kodeboka for å et inntrykk av dette datasettet og for å se hva variablene vi bruker fange opp.
+
+Jeg har ekskludert land som kun eksisterte før 1952, trukket ut et lite utvalg av variabler og tilfeldig valgt ut 10000 rader. Jeg lagret dette som en csv-fil. Filen heter **oppgave_1_data.csv** og ligger i samme mappe som denne fila. Last inn dette datasettet med ``read_csv``. Kall objektet **vdem_train**. Bruk navnet på objektet til å se på datasettet. 
+
+## Last inn data og gi noen variabler nye navn
+
+Etterpå bruker du ``rename`` til å gi variablene navn som er lettere å huske. Kall **v2x_polyarchy** demokrati, **v2pepwrses** likhet, **v2pepwrgen** likestilling, **v2psoppaut** opposisjon og **v2x_corr** korrupsjon. Ikke skift navn på de andre variablene. Sørg også for at variablene ikke endrer rekkefølge.
+
+Vi ønsker å beskrive utviklingen i demokrati over tid og mellom grupper av land og bygge modeller som kan predikere nivå på demokrati utenfor trenings-datasettet vårt. 
+
+For at koden skal kjøre må du endre ``eval=FALSE`` til ``eval=TRUE`` i topplinjen på r-kode bitene.
+
+```{r last_inn_gi_navn, eval = TRUE, echo = TRUE, message = FALSE} 
+library(tidyverse);library(gridExtra)
+library(readr);library(modelr)
+library(broom);library(caret)
+# bruk install.pacakges("navn_på_library") hvis disse ikke er installert hos deg
+# disse pakkene vil være installert på maskinen som tester koden
+
+vdem_train <- read_csv("oppgave_1_data.csv")
+
+vdem_train <- rename(vdem_train, demokrati = v2x_polyarchy, likhet = v2pepwrses, likestilling = v2pepwrgen, opposisjon = v2psoppaut, korrupsjon = v2x_corr)
+  #rename gi nye navn til variablene 
+  # v2x_polyarchy, v2pepwrses, v2pepwrgen, 2psoppaut og v2x_corr
+  # Du skal ikke gi nye navn til de andre variablene. 
+  # Det skal ikke bli flere variabler i datasettet
+
+```
+
+## Lag noen figurer
+
+Nå vil jeg at du skal lage to figurer. Den første figuren skal vise utvikling i demokrati over tid innad i hvert enkelt land. Det skal ikke stå **year** på x-aksen, men det skal stå **demokrati** på y-aksen. Gi figuren til objektet **demo_tid**. Legg på semi-parametrisk regresjonslinje som viser sammenhengen på tvers av land. 
+
+I den andre figuren skal du vise samvariasjon mellom **korrupsjon** (y-akse) og **opposisjon** (x-akse). Hver observasjon skal være et punkt. Gjør punktene semi-gjennomsiktige slik at vi kan se mønster i data ved å sette alpha = .1 i punkt-argumentet. Bruk **facet_wrap** for å lage en dele opp etter verdensdel.  Gi figuren til objektet **korr_opp**. Pass på at alle verdensdelene står ved siden av hverandre (Hint! bruk ncol).
+
+
+```{r sammenheng, eval = TRUE, echo = TRUE, message = FALSE, warning = FALSE}
+demo_tid <- vdem_train %>%
+  ggplot(aes(year,demokrati)) +
+    geom_line(aes(group=country_name)) +
+    geom_smooth(show.legend = FALSE)
+demo_tid <- demo_tid + theme(axis.title.x = element_blank())
+  # med vdem_train
+  # lag en figur som viser utvikling nivå på demokrati over tid per gruppert på land
+  # vis dette med landspesifikke linjer
+  # legg en glattet (semi-parametrisk) linje på tvers av land over
+  # fjern navn på x akse
+
+korr_opp <- vdem_train %>%
+  ggplot(aes(opposisjon, korrupsjon)) + 
+  geom_point(show.legend = FALSE, alpha = 0.1) +
+  facet_wrap(~continent, ncol = 5)
+korr_opp
+
+  # lag et plot med opposisjon mot korrupsjon
+  # vis som gjennomsiktige punkter
+  # grupper etter verdensdel og la figurene stå ved siden av hverandre
+
+   #det under skal IKKE endres 
+grid.arrange(demo_tid,korr_opp, 
+             nrow = 2, 
+             top = "Demokrati, opposisjon og korrupsjon")  
+```
+
+## Tell opp andel missing for hvert år
+
+Nå skal du lage din egen funksjon! 
+
+Oppgaven er å finne ut hvordan andel missing varierer over tid på de ulike variablene i datasettet. For å gjøre det trenger vi først en funksjon som gi oss andelen missing for en variabel. Denne lager vi med funksjonen ``function``. Kall funksjonen **na_prop**. Husk at i logiske variabler er FALSE = 0 og TRUE = 1. 
+
+```{r lag_funksjon, eval = TRUE, echo = TRUE}
+na_prop <- function(x) {
+  sum(is.na(x)) / length(x)
+}
+
+na_prop(vdem_train$demokrati)
+```
+
+Nå vil jeg at du skal bruke **na_prop** til å regne ut andel missing for hvert år på demokrati, likhet, likestilling, opposisjon og korrupsjon sette disse sammen til et datasett (tibble) og sortet etter årstall. Du kan bruke ``gather`` for å gjøre dette. Kall første argument i ``gather`` for **key**. Det er denne som blir gruppe-variabelen din.  Legg **_miss** til det ordinære variable-navnet. Legg til snitt-verdi for den ordinære variabelen for det året. Kall dette **year_miss**. Med **year_miss** lag en figur som viser en glattet utvikling i missing over tid for hver av missing variablene. Bruk forskjellige farger for hver variable. Disse må korrespondere med  Kall y-aksen for "Andel missing". Kall figuren **fig_year_miss**.
+
+```{r bruk_na_prob, eval = FALSE, echo = TRUE, message = FALSE}
+year_miss <- vdem_train %>%
+  group_by(year) %>%
+  summarise(korrupsjon_miss = na_prop(korrupsjon),
+            opposisjon_miss = na_prop(opposisjon),
+            demokrati_miss = na_prop(demokrati),
+            likhet_miss = na_prop(likhet),
+            likestilling_miss = na_prop(likestilling))
+year_miss
+  # med vdem treningsdata
+  # grupper etter land og 
+  # oppsummer andel missing for hver av variablene 
+  # demokrati, likhet, likestilling, opposisjon og korrupsjon
+
+fig_year_miss <- year_miss %>%
+  gather(key, value, 2:6) %>%
+  ggplot(aes(x=year, y=value, color=key)) + 
+    geom_smooth() + 
+    labs(y = "Andel missing")
+  # bruk year_miss
+  # lag om til et langt datasett hvor gruppe variabel heter key
+  # sett opp en fig med år på x-aksen, verdi på y med farge etter gruppe
+  # trekk en ikke-parameterisk regresjonslinje gjennom dette
+  # kall y aksen for Andel missing
+  
+
+fig_year_miss # denne linjen sørger for at figuren også vises i det endelige dokumentet
+```
+
+## Regresjon
+
+Vi har nå kommet frem til regresjonsmodeller. Vi fjerner først missing data med ``na.omit`` og kaller det nye datasettet **vdem_complete**. Nå skal du lage en minimalistisk prediksjonsmodell for demokratisk nivå. Med 2 variabler, lag en lm modell hvor $r^2 > .7$. Du kan ikke ha "country_name" i modellen. Ved kategoriske variabler teller en variable med 2 nivå som 1 variabler, mens en med 3 nivå som 2 variabler, osv. Tilsvarende, en interaksjon teller som tre variabler. Dette er fordi vi må estimere et parameter for hver av dem. Husk at du må angi datasettet med argumentet **data** etter "," .   
+
+```{r regresjon, eval=TRUE, echo = TRUE}
+vdem_complete <- na.omit(vdem_train) # her fjerner vi alle rader med missing
+lm_mod <- lm(demokrati ~ likestilling + opposisjon, data = vdem_train)
+  # En lm modell med vdem_complete data 
+summary(lm_mod) # vis resultatene, litt mer info enn du egentlig trenger
+```
+
+Nå skal du lage en god modell for et enkelt-land som en ``function``, og anvende denne på tvers av alle land med ``map``. Kall denne  **reg_fun**. Du må gruppere data som du skal kjøre modellen på på land. Kall dette objektet **by_country**.
+
+Vurder justert $r^2$, hvor godt passer modellen på tvers av treningsdata? Bruk ``summarise`` til å lage et oppsummerende datasett I **reg_mods** rapporter følgene oppsummerende variabler, ``min``, ``mean``, ``median``, ``max`` og ``sd`` for hver verdensdel.
+Kall disse variablene henholdsvis **adj_r2_sq_min**, **adj_r2_sq_mean**, **adj_r2_sq_median**, **adj_r2_sq_max**, **adj_r2_sq_sd**.
+For at modellen skal være god, må **adj_r2_sq_mean** være minst .75 for alle verdensdeler. 
+
+```{r mods_fit, eval = TRUE, echo = TRUE}
+reg_fun <- function(df) {
+  lm(demokrati ~ opposisjon + likestilling, data = df)
+  # sett opp en lm modell med demokrati som avhengig variable. Kall datasettet df
+}
+
+by_country <- vdem_complete %>%
+  group_by(country_name, continent) %>%
+  nest() %>%
+  mutate(model = map(data, reg_fun))
+  # med vdem_complete
+  # grupper etter land og kontinent
+  # nøst dette sammen
+  # legg til en kollonne med resultatene av landspesifikke reg_fun modeller
+
+reg_mods <- by_country  %>% 
+  mutate(glance = map(model,glance)) %>% 
+  unnest(glance, .drop=TRUE) %>% 
+  select(adj.r.squared, continent) %>% 
+  group_by(continent)
+  # by_country 
+  # vis modell statistikk
+  # nøst ut og kast det du ikke trenger
+  # velg justert r^2 og verdensdeler
+  # grupper på verdensdeler
+
+mods_sum <- reg_mods %>%   
+  summarise(adj_r2_sq_sd = sd(adj.r.squared),
+            adj_r2_sq_min = min(adj.r.squared), 
+            adj_r2_sq_max = max(adj.r.squared), 
+            adj_r2_sq_mean = mean(adj.r.squared), 
+            adj_r2_sq_median = median(adj.r.squared))
+  # med reg_mods
+  # oppsummer justert r^2, minimum, snitt, median, maksimim og standardavvik
+mods_sum
+
+# vis at snitt av justert r^2 per verdensdel er over .75
+```
+
+
+## KNN-regresjon
+
+Til slutt prøver vi oss på en ikke-parametrisk modell på tvers av alle land, vi bruker funksjonen ``knnreg`` i **library(caret)**. Vi evaluerer prediksjonskraft som gjennomsnittet av kvadratroten av den absolutte forskjellen mellom predikert $y$ og faktisk $y$. Lag funksjonen for dette. Kall den funksjonen ``mean_squared_abs_error``. 
+
+Vi bruker alle variablene utenom "country_name","kontinent" og "year" i modellen. Modellen kaller vi **knn_mod**. Her har vi gitt **k** verdien $i$. 
+
+Varier $i$ fra 1 - 250  med **ks** og prediker $y$ i treningsdata for hver k. Kall dette objektet **knn_mods**.
+
+Kalkuler gjennomsnittlig prediksjonskraft med ``mean_squared_abs_error`` for hver verdi av **ks** i **knn_mods**. Dette objektet skal være en ``tibble`` og ha to kolonner, $value$ er verdien av, $ks$ er verdien på $k$. Kall dette objected for **knn_k**. 
+
+Med **knn_k**, lag en figur i som viser hvordan modellen predikerer i testdata. Legg på en ikke-parametrisk trendlinje. La y-aksen vise verdien fra ``mean_squared_abs_error`` og x-aksen vise **k**. Du skal ikke endre navn på hverken x eller y aksen. Legg på tittelen "knn i treningsdata". Kall figure **fig_knn**.
+
+```{r knn_mods, eval = TRUE, echo= TRUE}
+mean_squared_abs_error <- function(preds,y){
+  sqrt(abs(preds-y))
+  # kvadratroten av den absolutte forskjellen mellom preds og y
+}
+
+knn_mod <- function(i,dt){
+  knnreg(demokrati ~ opposisjon + korrupsjon + likhet + likestilling, data = dt, k = i)
+  # knn modellen, la i angi k og dt angi data
+}
+
+ks <- 1:250 # her lager vi en sekvens, ks, som k kan variere med
+
+knn_mods <- map(ks,function(i) {
+  knn_mod(i,vdem_complete) %>%
+  predict(vdem_complete)
+  # kkn_modellen for "i" antall k mer treningsdata
+  # prediker med treningsdatas
+})
+
+knn_k <- map(knn_mods, mean_squared_abs_error, vdem_complete$demokrati) %>%
+  map(mean) %>%
+  unlist() %>%
+  cbind(value = ., ks) %>%
+  as_tibble()
+  # for hver av knn_mods kalkuler mean squared absolutt feil
+  # regn ut snittet for hver av disse
+  # gjør om fra liste 
+  # bind dette sammen som kolonner 
+  # gjør om til en tibble
+
+fig_knn <- ggplot(knn_k, aes(ks, value)) +
+  geom_smooth() + 
+  ggtitle("KNN i treningsdata")
+fig_knn
+  # trekk en glattet linje
+  # legg til tittel
+```
+
+Til slutt, last inn **oppgave_1_testdata.csv**, gi navn og fjern missing. Bruk datasettet til å predikere missing. Kalkuler snitt av ``mean_squared_abs_error`` for alle verdier i **ks**. Kall denne vektoren av verdier **test** og lag en ny veriable i **knn_k** som er treningsverdien minus testverdien. Kall denne variablen **diff**. Bruk det oppdaterte *knn_k** til å lage en figur som vise forskjell mellom trening og testdata som en linje hvor **ks** er på x-aksen of **diff** på y-aksen. Gi figuren overskriften "KNN: Forskjell i feil-prediksjon: Trening - Test".  Bruk forskjellige farger for hver variable. Disse må korrespondere med  Kall y-aksen for "Andel missing". Kall x-aksen for "k" og y-aksen for "trening - test". Kall figuren fig_diff.
+
+```{r testdata, eval = TRUE, echo = TRUE}
+
+vdem_test <- read_csv("oppgave_1_testdata.csv")
+#last inn data
+
+vdem_test <- rename(vdem_test, demokrati = v2x_polyarchy, likhet = v2pepwrses, likestilling = v2pepwrgen, opposisjon = v2psoppaut, korrupsjon = v2x_corr) %>%
+  na.omit()
+#bruk vdem_test
+#gi samme navn som i vdem_train
+# fjern missing
+
+test <- map(ks,function(i) {
+    knn_mod(i,vdem_complete) %>%
+    predict(vdem_test)
+    # estimer på treningsdata
+    # predikt på testdata
+})
+
+test<- map(test,mean_squared_abs_error, vdem_test$demokrati) %>%
+    map(mean) %>%
+    unlist()
+    # for hver av test kalkuler mean squared absolutt feil
+    # regn ut snittet for hver av disse
+    # la test være en vektor 
+
+diff_fig <- knn_k %>%
+  mutate(diff = value - test) %>%
+  ggplot(aes(ks, diff)) +
+    geom_line() +
+    ggtitle("KNN: Forskjell i feil-prediksjon: Trening - Test") +
+    scale_x_continuous("k") +
+    scale_y_continuous("trening - test")
+  # med knn_k data
+  # legg til en variable, diff, som viser trening minus test resultat
+  # lag en figur av denne forskjellen hvor x-aksen er ks og y er diff
+  # vis dette som en linje
+  # Legg til tittelen: KNN: Forskjell i feil-prediksjon: Trening - Test
+  # endre x akse til k
+  # endre y akse til trening - test
+  
+diff_fig
+
+```
+
+Trykk på "Knit" og last opp både oppgave_1.Rmd og oppgave_1.md i github.

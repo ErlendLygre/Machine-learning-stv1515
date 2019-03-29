@@ -1,0 +1,113 @@
+---
+  title: "Oppgave 4"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+  
+  I denne oppgaven skal du jobbe videre med parti-programmene fra 2001 og 2005. Du trenger ikke ha med Kystpartiet eller partiprogrammer som ikke finnes på bokmål (evt ikke finnes på nynorsk). I stedet for å plassere partiene lengs en latent dimensjon slik du gjorde i oppgave 3, så skal du dele opp i kapitler og klassifisere disse ved hjelp av maskinlæringsmodeller for å klassifisere tekst.  Spørsmålet som skal belyses er om Senterpartiet endrer partiprogrammet mer enn de andre partiene mellom 2001 og 2005. 
+
+
+```{r last_inn}
+library(quanteda)
+library(tidytext)
+library(tidyr)
+library(readtext)
+library(scales)
+library(tidyverse)
+library(tm)
+
+parti_data <- list(
+                c("sv", 0, "http://www.nsd.uib.no/polsys/data/filer/parti/H32.html", "\n[0-9][0-9]*.\\s.*\n"),
+                c("arbeiderpartiet", 1, "http://www.nsd.uib.no/polsys/data/filer/parti/H9191.html", "\n.*:.*\\w\n"),
+                c("frp", 0, "http://www.nsd.uib.no/polsys/data/filer/parti/H5181.html", "\n[A-Å][a-å].{1,60}\\w\n"),
+                c("frp", 1, "http://www.nsd.uib.no/polsys/data/filer/parti/H9368.html", "\n[A-Å][a-å].{1,60}\\w\n"),
+                c("hoyre", 0, "http://www.nsd.uib.no/polsys/data/filer/parti/H3.html", "\n\\d.\\s.*\n"),
+                c("hoyre", 1, "http://www.nsd.uib.no/polsys/data/filer/parti/H9364.html", "\nÅ+.*\\w\n"),
+                c("senterpartiet", 1, "http://www.nsd.uib.no/polsys/data/filer/parti/H9366.html", "\n[0-9][0-9]*.\\s.*([\\w]|[!]|[\"])+\n"),
+                c("senterpartiet", 0, "http://www.nsd.uib.no/polsys/data/filer/parti/H37.html", "\n['Kapittel ']+['0-9]*:.*\n"),
+                c("krf", 1, "http://www.nsd.uib.no/polsys/data/filer/parti/H9365.html", "\n[A-Å].{1,25}[a-å]\n"),
+                c("krf", 0, "http://www.nsd.uib.no/polsys/data/filer/parti/H34.html", "\n['Kapittel' ]*[0-9][0-9]*.*\n"),
+                c("venstre", 1, "http://www.nsd.uib.no/polsys/data/filer/parti/H9362.html", "Kapittel\\s[0-9][0-9]*:.*"),
+                c("venstre", 0, "http://www.nsd.uib.no/polsys/data/filer/parti/H25.html", "\n[0-9].*:.*\\w\n")
+              )
+corpi <- corpus("start")
+
+create_chapters <- function(party, year, url, myRegex) {
+  raw <- readtext(url, encoding = "LATIN1")
+  tmp <- corpus(raw)
+  docvars(tmp, c("parti", "2005")) <- c(party, year)
+  tmp_corpus <- tmp %>% 
+    corpus_segment(
+      pattern = myRegex,
+      valuetype = "regex", 
+      case_insensitive = FALSE)
+  corpi <<- corpus(c(corpi, tmp_corpus))
+}
+
+for (i in parti_data) {
+  create_chapters(i[1], i[2], i[3], i[4])
+}
+
+parti_corpus <- corpus(tail(corpi,-1))
+
+```
+For å gjøre det skal du finne systematiske trekk i parti-programmene som du kan bruke til å dele opp etter kapitler. Deretter skal du sette dem sammen til et korpus med dokumentvariablene: parti, kapittel-tittel, årstall-indikator (1 for 2005 og 0 for 2001), antall setninger i hvert kapittel og antall ord.
+
+```{r hent_ut_del_opp}
+# Jeg fant det mest praktisk å gjøre dette før kapitlene ble delt opp. Se blokken over
+```
+
+Velg noen rimelige pre-prosessering-steg, og lag en ordfrekvens-matrise som lar seg analyserer med ``textmodel_lda`` og ``stm``. Begrunn pre-prosesseringstegene helt kort. 
+
+```{r dfm}
+stop_words <- c("arbeiderpartiet", "sikre","offentlig", "valg","styrke", "gi", "legge", "norsk","gode","offentlig","mener", "hele", "større", "viktig","ønsker", "derfor","enkelt", "landet","norge", "gjennom", "mer","store", "arbeiderpartiets", "www.caplex.net", "må", "bør", "fremskrittspartiet", "fremskrittspartiets", "sosialistisk", "venstreparti", "sv", "senterpartiet", "senterpartiets", "sp", "krf", "kristelig", "folkeparti", "høyre", "venstre", "venstres", "à", "kristendemokratiet", "kristendemokratisk", "o")
+
+parti_dfm <- parti_corpus %>% 
+  dfm(remove_numbers = TRUE, #Fjerner nummer da jeg ikke anser dette som relevant for å skille partiene fra hverandre
+      remove_punct = TRUE, #det samme med punktsetting
+      stem = TRUE, #fjerner bøyinger og ulike former av ord. Gir et bedre sammenligningsgrunnlag
+      remove =  c(stopwords("no"),stop_words)) #fjerner irrelevante bindeord og ord som er karakteristiske for enkeltpartier.
+parti_dfm
+```
+
+Kjør en ``lda`` model med 25 tema og oppsummer resultatene. 
+
+```{r lda}
+
+library(topicmodels)
+ryddige_overskrifter <- as.character(gsub("\n","",docvars(parti_corpus)$pattern)) # ta bort "\n" i overskriftene
+dtm_partier <- convert(parti_dfm, "topicmodels") # gjør om til en topic-model dfm
+lda_mod <- LDA(dtm_partier, 25) # latent dirchlet allokering
+get_terms(lda_mod, 10) # vi de 10 vanligste ordene i hvert tema
+
+library(tidyverse)
+mest_sann_topic <- as.tibble(data.frame(topic = t(get_topics(lda_mod, 3)),
+                                        overskrift = ryddige_overskrifter,
+                                        parti = docvars(parti_corpus)$parti))
+mest_sann_topic %>% 
+  arrange(desc(topic.1)) %>% # so
+  cbind()
+
+#Her klarer modellen å fange opp mange av de viktigste politiske områdene. Fra tabellen ser vi at Tema 2 handler om forsvar. Tema 3 handler om kultur. Tema 8 handler om samferdsel. 14 om miljø. 16 om høyere utdanning. 17 om justispolitikk. 25 om helsepolitikk.
+```
+
+Kjør deretter en ``stm`` model med samme spesifikasjon og diskuter forskjellen mellom disse modellene.
+
+```{r stm_null}
+
+```
+
+Legg til variabler som indikerer årstall og om det er Senterpartiet eller ikke i ``stm`` modellen. 
+
+```{r stm}
+
+```
+
+Rapporter resultatene og lag noen figurerer som viser om, og i så fall, i hvilken grad Senterpartiet endret programmet sitt mer enn andre partier fra 2001 til 2005. Forklar hva figurene viser og bruk disse funnene til å begrunne svaret ditt.
+
+```{r stm_res}
+
+```
+
+Forklar og begrunn!
